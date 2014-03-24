@@ -1,118 +1,56 @@
 var express = require('express');
 var http = require('http');
 var path = require('path');
+var request = require('request');
 var favicon = require('static-favicon');
 var logger = require('morgan');
 var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
 var fs = require('fs');
-var conusInterval = null;
+var $ = require('cheerio');
+var images = [];
 var grabInterval = null;
-var utc = null;
-var loop = 1;
 
 var routes = require('./routes');
 var users = require('./routes/user');
 
 var app = express();
 
-var zeroPad = function (num, places) {
-    var zero = places - num.toString().length + 1;
-    return Array(+(zero > 0 && zero)).join("0") + num;
-}
+var grabRadarImage = function (err, resp, html) {
+    console.log('Checking for new radar image...');
+    if (err) return console.error(err);
+    var parsedHTML = $.load(html);
+    images = [];
+    parsedHTML('a').map(function (i, link) {
+        var href = $(link).attr('href');
 
-var grabLatestConus = function () {
-    console.log('grabbing conus data...');
-    var utc = new Date;
-    if (utc.getUTCMinutes().toString().match(/[0-9]{1}9/) != null) {
-        console.log('getting image...');
-        var img = 'Conus_' + utc.getUTCFullYear().toString() + zeroPad((Number(utc.getUTCMonth()) + 1), 2) + utc.getUTCDate().toString() + '_' + utc.getUTCHours().toString() + (Number(utc.getUTCMinutes() - 1)) + '_N0Ronly.gif';
-        console.log('image path is /ridge/Conus/RadarImg/' + img);
-        var options = {
-            host: 'radar.weather.gov', port: 80, path: '/ridge/Conus/RadarImg/' + img
-        }
-        var request = http.get(options, function (res) {
-            console.log('requesting image..');
-            var imagedata = '';
-            res.setEncoding('binary');
+        if (!href.match(/Conus_[0-9]+_[0-9]{4}_N0Ronly.gif/)) return;
+        images.push(href);
+    });
+    downloadImage(images.length);
 
-            res.on('data', function (chunk) {
-                imagedata += chunk;
-            });
-
-            res.on('end', function () {
-                fs.writeFile('public/images/radar/' + img, imagedata, 'binary', function (err) {
-                    if (err) throw err;
-                    console.log('File saved.');
-                });
-            });
-        });
-    }
-
-    if (conusInterval === null)
-        conusInterval = setInterval(grabLatestConus, 60000);
+    if (grabInterval === null) grabInterval = setInterval(grabRadarImage, 60000);
 };
 
-//grab past 4 hours of radar data
-var grabAllConus = function () {
+var grabRadarImages = function (err, resp, html) {
+    if (err) return console.error(err);
+    var parsedHTML = $.load(html);
+    images = [];
+    parsedHTML('a').map(function (i, link) {
+        var href = $(link).attr('href');
 
-    if (loop === 1) {
-        utc = new Date;
-        utc.setUTCHours(utc.getUTCHours() - 4);
-    }
-    var img;
-
-    if (loop <= 24) {
-        if (utc.getUTCMinutes().toFixed() > 7 && utc.getUTCMinutes() < 18) {
-            img = 'Conus_' + utc.getUTCFullYear().toString() + zeroPad((Number(utc.getUTCMonth()) + 1), 2) + utc.getUTCDate().toString() + '_' + utc.getUTCHours().toString() + '08_N0Ronly.gif';
-        }
-
-        if (utc.getUTCMinutes().toFixed() > 17 && utc.getUTCMinutes() < 28) {
-            img = 'Conus_' + utc.getUTCFullYear().toString() + zeroPad((Number(utc.getUTCMonth()) + 1), 2) + utc.getUTCDate().toString() + '_' + utc.getUTCHours().toString() + '18_N0Ronly.gif';
-        }
-
-        if (utc.getUTCMinutes().toFixed() > 27 && utc.getUTCMinutes() < 38) {
-            img = 'Conus_' + utc.getUTCFullYear().toString() + zeroPad((Number(utc.getUTCMonth()) + 1), 2) + utc.getUTCDate().toString() + '_' + utc.getUTCHours().toString() + '28_N0Ronly.gif';
-        }
-
-        if (utc.getUTCMinutes().toFixed() > 37 && utc.getUTCMinutes() < 48) {
-            img = 'Conus_' + utc.getUTCFullYear().toString() + zeroPad((Number(utc.getUTCMonth()) + 1), 2) + utc.getUTCDate().toString() + '_' + utc.getUTCHours().toString() + '38_N0Ronly.gif';
-        }
-
-        if (utc.getUTCMinutes().toFixed() > 47 && utc.getUTCMinutes() < 58) {
-            img = 'Conus_' + utc.getUTCFullYear().toString() + zeroPad((Number(utc.getUTCMonth()) + 1), 2) + utc.getUTCDate().toString() + '_' + utc.getUTCHours().toString() + '48_N0Ronly.gif';
-        }
-
-        if (utc.getUTCMinutes().toFixed() === 59) {
-            img = 'Conus_' + utc.getUTCFullYear().toString() + zeroPad((Number(utc.getUTCMonth()) + 1), 2) + utc.getUTCDate().toString() + '_' + utc.getUTCHours().toString() + '58_N0Ronly.gif';
-        }
-
-        if (utc.getUTCMinutes().toFixed() > 0 && utc.getUTCMinutes() < 8) {
-            utc.setUTCHours(utc.getUTCHours() - 1);
-            img = 'Conus_' + utc.getUTCFullYear().toString() + zeroPad((Number(utc.getUTCMonth()) + 1), 2) + utc.getUTCDate().toString() + '_' + utc.getUTCHours().toString() + '58_N0Ronly.gif';
-            utc.setUTCHours(utc.getUTCHours() + 1);
-        }
-
-        utc.setUTCMinutes(utc.getUTCMinutes() + 10);
-
-        downloadImage(img);
-        loop++;
-        if (grabInterval === null) {
-            grabInterval = setInterval(grabAllConus, 1000);
-        }
-    } else {
-        clearInterval(grabInterval);
-        loop = 0;
-        utc = null;
-    }
+        if (!href.match(/Conus_[0-9]+_[0-9]{4}_N0Ronly.gif/)) return;
+        images.push(href);
+    });
+    downloadImage(0);
 };
 
-var downloadImage = function (img) {
+var downloadImage = function (index) {
+    if (images.length === 0 || index > images.length) return;
     var options = {
-        host: 'radar.weather.gov', port: 80, path: '/ridge/Conus/RadarImg/' + img
+        host: 'radar.weather.gov', port: 80, path: '/ridge/Conus/RadarImg/' + images[index]
     }
     var request = http.get(options, function (res) {
-        console.log('requesting image..');
         var imagedata = '';
         res.setEncoding('binary');
 
@@ -121,16 +59,16 @@ var downloadImage = function (img) {
         });
 
         res.on('end', function () {
-            fs.writeFileSync('public/images/radar/' + img, imagedata, 'binary', function (err) {
-                if (err) throw err;
-                console.log('File saved.');
-            });
+            index++;
+            if (res.statusCode === 200 && images[index] != undefined) fs.writeFileSync('public/images/radar/' + images[index], imagedata, 'binary');
+            downloadImage(index);
         });
     });
 }
 
-grabLatestConus();
-grabAllConus();
+request('http://radar.weather.gov/ridge/Conus/RadarImg/', grabRadarImages);
+request('http://radar.weather.gov/ridge/Conus/RadarImg/', grabRadarImage);
+
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
